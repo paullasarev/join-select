@@ -1,5 +1,5 @@
 import { TableStructure } from 'types';
-import { fromArray, joinLeft, select } from './select';
+import { fromArray, joinLeft, joinRight, select } from './select';
 
 describe('join-select', () => {
   const test: TableStructure = {
@@ -84,11 +84,35 @@ describe('join-select', () => {
     });
   });
 
-  describe('where', () => {});
+  describe('joinRight', () => {
+    it('should join by one column', () => {
+      const table1 = fromArray(countries)(countriesData);
+      const table2 = fromArray(cities)(citiesData);
 
-  describe('joinRight', () => {});
+      const table3 = joinRight('joined', { left: 'id', right: 'countryId' })(
+        table1,
+        table2,
+      );
+      expect(table3.structure.name).toBe('joined');
+      expect(table3.structure.columns).toEqual([
+        'cities.id',
+        'cities.name',
+        'cities.countryId',
+        'countries.id',
+        'countries.name',
+      ]);
+      expect(table3.data).toEqual([
+        [21, 'Berlin', 1, 1, 'Germany'],
+        [22, 'Hamburg', 1, 1, 'Germany'],
+        [23, 'Munchen', 1, 1, 'Germany'],
+        [11, 'Moscow', 2, 2, 'Russia'],
+        [12, 'Izhevsk', 2, 2, 'Russia'],
+        [13, 'Voronezh', 2, 2, 'Russia'],
+      ]);
+    });
+  });
 
-  describe('joinInner', () => {});
+  describe('join', () => {});
 
   describe('joinFull', () => {});
 

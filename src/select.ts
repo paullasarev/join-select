@@ -121,3 +121,8 @@ export const joinLeft =
       data,
     };
   };
+
+export const joinRight =
+  (name: string, joinBy: LeftRight) =>
+  (left: DataTable, right: DataTable): DataTable =>
+    joinLeft(name, { left: joinBy.right, right: joinBy.left })(right, left);
