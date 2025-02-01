@@ -1,5 +1,5 @@
 import { TableStructure } from 'types';
-import { fromArray, joinLeft, joinRight, select } from './select';
+import { fromArray, join, joinLeft, joinRight, select } from './select';
 
 describe('join-select', () => {
   const test: TableStructure = {
@@ -18,6 +18,8 @@ describe('join-select', () => {
     [1, 'Germany'],
     [2, 'Russia'],
   ];
+
+  const countriesRussiaData = [[2, 'Russia']];
 
   const cities: TableStructure = {
     name: 'cities',
@@ -112,11 +114,32 @@ describe('join-select', () => {
     });
   });
 
-  describe('join', () => {});
+  describe('join', () => {
+    it('should join by one column', () => {
+      const table1 = fromArray(cities)(citiesData);
+      const table2 = fromArray(countries)(countriesRussiaData);
+
+      const table3 = join('joined', { left: 'countryId', right: 'id' })(
+        table1,
+        table2,
+      );
+      expect(table3.structure.name).toBe('joined');
+      expect(table3.structure.columns).toEqual([
+        'cities.id',
+        'cities.name',
+        'cities.countryId',
+        'countries.id',
+        'countries.name',
+      ]);
+      expect(table3.data).toEqual([
+        [11, 'Moscow', 2, 2, 'Russia'],
+        [12, 'Izhevsk', 2, 2, 'Russia'],
+        [13, 'Voronezh', 2, 2, 'Russia'],
+      ]);
+    });
+  });
 
   describe('joinFull', () => {});
-
-  describe('joinCross', () => {});
 
   describe('where', () => {});
 

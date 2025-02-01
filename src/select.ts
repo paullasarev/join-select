@@ -1,3 +1,5 @@
+import { intersection } from 'lodash';
+
 import {
   ColumnsIndexes,
   DataArray,
@@ -71,39 +73,18 @@ export function getColumnsIndexes(columns: DataColumns) {
 export const joinLeft =
   (name: string, joinBy: LeftRight) =>
   (left: DataTable, right: DataTable): DataTable => {
-    const columns: DataColumns = [];
-
-    left.structure.columns.forEach((item) => {
-      columns.push(`${left.structure.name}.${item}`);
-    });
-    right.structure.columns.forEach((item) => {
-      columns.push(`${right.structure.name}.${item}`);
-    });
-
-    const rightColumnIndex = right.columnsIndexes[joinBy.right];
-    const rightRowsByKeys = right.data.reduce<Record<DataKeyType, DataArray>>(
-      (acc, item) => {
-        const rightKeyValue = item[rightColumnIndex] as DataKeyType;
-        acc[rightKeyValue] = item;
-        return acc;
-      },
-      {},
-    );
+    const columns: DataColumns = getJoinColumns(left, right);
+    const rightRowsByKeys = getRowsByKeys(right, joinBy.right);
 
     const leftColumnIndex = left.columnsIndexes[joinBy.left];
     const data: DataArray[] = left.data.reduce<DataArray[]>(
       (result, leftRow) => {
         const row: DataArray = [];
-        left.structure.columns.forEach((leftColumn, leftIndex) => {
-          row.push(leftRow[leftIndex]);
-        });
+        addCells(row, left, leftRow);
 
         const leftKeyValue = leftRow[leftColumnIndex] as DataKeyType;
-        const rightRow = rightRowsByKeys[leftKeyValue];
-        right.structure.columns.forEach((rightColumn, rightIndex) => {
-          const rightValue = rightRow ? rightRow[rightIndex] : null;
-          row.push(rightValue);
-        });
+        const rightRow = rightRowsByKeys[leftKeyValue]?.[0];
+        addCells(row, right, rightRow);
 
         result.push(row);
 
@@ -126,3 +107,73 @@ export const joinRight =
   (name: string, joinBy: LeftRight) =>
   (left: DataTable, right: DataTable): DataTable =>
     joinLeft(name, { left: joinBy.right, right: joinBy.left })(right, left);
+
+export const join =
+  (name: string, joinBy: LeftRight) =>
+  (left: DataTable, right: DataTable): DataTable => {
+    const columns: DataColumns = getJoinColumns(left, right);
+    const leftRowsByKeys = getRowsByKeys(left, joinBy.left);
+    const rightRowsByKeys = getRowsByKeys(right, joinBy.right);
+
+    const leftKeys = Object.keys(leftRowsByKeys);
+    const rightKeys = Object.keys(rightRowsByKeys);
+    const commonKeys = intersection(leftKeys, rightKeys);
+
+    const data: DataArray[] = [];
+
+    commonKeys.forEach((keyValue) => {
+      const leftRows = leftRowsByKeys[keyValue];
+      const rightRows = rightRowsByKeys[keyValue];
+      leftRows.forEach((leftRow) => {
+        rightRows.forEach((rightRow) => {
+          const newRow: DataArray = [];
+          addCells(newRow, left, leftRow);
+          addCells(newRow, right, rightRow);
+          data.push(newRow);
+        });
+      });
+    });
+
+    return {
+      structure: {
+        name,
+        columns,
+      },
+      columnsIndexes: getColumnsIndexes(columns),
+      data,
+    };
+  };
+
+function addCells(newRow: DataArray, table: DataTable, tableRow: DataArray) {
+  table.structure.columns.forEach((columName, columnIndex) => {
+    newRow.push(tableRow[columnIndex]);
+  });
+}
+
+function getRowsByKeys(table: DataTable, columnName: string) {
+  const columnIndex = table.columnsIndexes[columnName];
+  const rowsByKeys = table.data.reduce<Record<DataKeyType, DataArray[]>>(
+    (acc, item) => {
+      const keyValue = item[columnIndex] as DataKeyType;
+      const prev = acc[keyValue] ?? [];
+      prev.push(item);
+      acc[keyValue] = prev;
+      return acc;
+    },
+    {},
+  );
+  return rowsByKeys;
+}
+
+function getJoinColumns(left: DataTable, right: DataTable) {
+  const columns: DataColumns = [];
+
+  left.structure.columns.forEach((item) => {
+    columns.push(`${left.structure.name}.${item}`);
+  });
+  right.structure.columns.forEach((item) => {
+    columns.push(`${right.structure.name}.${item}`);
+  });
+
+  return columns;
+}
