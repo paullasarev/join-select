@@ -1,4 +1,4 @@
-import { intersection } from 'lodash';
+import { intersection, groupBy } from 'lodash';
 
 import {
   ColumnsIndexes,
@@ -6,26 +6,25 @@ import {
   DataColumns,
   DataKeyType,
   DataTable,
+  DataValue,
   LeftRight,
   NameAlias,
-  TableStructure,
 } from 'types';
 
 export const fromArray =
-  (structure: TableStructure) =>
+  (columns: DataColumns) =>
   (data: DataArray[]): DataTable => {
-    const { columns } = structure;
     const columnsIndexes = getColumnsIndexes(columns);
 
     return {
-      structure,
+      columns,
       data,
       columnsIndexes,
     };
   };
 
 export const select =
-  (name: string, columns: NameAlias[]) =>
+  (columns: NameAlias[]) =>
   (table: DataTable): DataTable => {
     const indexes = columns.reduce<Array<number>>((acc, item) => {
       const index = table.columnsIndexes[item.name];
@@ -54,10 +53,7 @@ export const select =
     }, []);
 
     return {
-      structure: {
-        name,
-        columns: resultColumns,
-      },
+      columns: resultColumns,
       columnsIndexes: getColumnsIndexes(resultColumns),
       data,
     };
@@ -71,9 +67,18 @@ export function getColumnsIndexes(columns: DataColumns) {
 }
 
 export const joinLeft =
-  (name: string, joinBy: LeftRight) =>
+  (
+    joinBy: LeftRight,
+    leftPrefix: string | undefined = undefined,
+    rightPrefix: string | undefined = 'right',
+  ) =>
   (left: DataTable, right: DataTable): DataTable => {
-    const columns: DataColumns = getJoinColumns(left, right);
+    const columns: DataColumns = getJoinColumns(
+      left,
+      right,
+      leftPrefix,
+      rightPrefix,
+    );
     const rightRowsByKeys = getRowsByKeys(right, joinBy.right);
 
     const leftColumnIndex = left.columnsIndexes[joinBy.left];
@@ -94,24 +99,38 @@ export const joinLeft =
     );
 
     return {
-      structure: {
-        name,
-        columns,
-      },
+      columns,
       columnsIndexes: getColumnsIndexes(columns),
       data,
     };
   };
 
 export const joinRight =
-  (name: string, joinBy: LeftRight) =>
+  (
+    joinBy: LeftRight,
+    leftPrefix: string | undefined = undefined,
+    rightPrefix: string | undefined = 'right',
+  ) =>
   (left: DataTable, right: DataTable): DataTable =>
-    joinLeft(name, { left: joinBy.right, right: joinBy.left })(right, left);
+    joinLeft(
+      { left: joinBy.right, right: joinBy.left },
+      leftPrefix,
+      rightPrefix,
+    )(right, left);
 
 export const join =
-  (name: string, joinBy: LeftRight) =>
+  (
+    joinBy: LeftRight,
+    leftPrefix: string | undefined = undefined,
+    rightPrefix: string | undefined = 'right',
+  ) =>
   (left: DataTable, right: DataTable): DataTable => {
-    const columns: DataColumns = getJoinColumns(left, right);
+    const columns: DataColumns = getJoinColumns(
+      left,
+      right,
+      leftPrefix,
+      rightPrefix,
+    );
     const leftRowsByKeys = getRowsByKeys(left, joinBy.left);
     const rightRowsByKeys = getRowsByKeys(right, joinBy.right);
 
@@ -135,17 +154,81 @@ export const join =
     });
 
     return {
-      structure: {
-        name,
-        columns,
-      },
+      columns,
+      columnsIndexes: getColumnsIndexes(columns),
+      data,
+    };
+  };
+
+export const where =
+  (filter: Record<string, DataValue[]>) =>
+  (dataSrc: DataTable): DataTable => {
+    const data: DataArray[] = [];
+
+    dataSrc.data.forEach((row) => {
+      const filters = Object.entries(filter);
+
+      const matched = filters.every((entry) => {
+        const [columnName, columnValue] = entry;
+        return columnValue.some((filterValue) => {
+          const columnIndex = dataSrc.columnsIndexes[columnName];
+          return row[columnIndex] === filterValue;
+        });
+      });
+
+      if (matched) {
+        data.push(row);
+      }
+    });
+
+    return {
+      columns: dataSrc.columns,
+      columnsIndexes: dataSrc.columnsIndexes,
+      data,
+    };
+  };
+
+export const group =
+  (groupColumName: string, groups: string[]) =>
+  (dataSrc: DataTable): DataTable => {
+    const { columnsIndexes } = dataSrc;
+    const getColumnIndex = (columnName: string) => columnsIndexes[columnName];
+    const groupColumnsIndexes = groups.map(getColumnIndex);
+
+    const grouped = groupBy(dataSrc.data, (row) => {
+      const key = groupColumnsIndexes
+        .map((columnIndex) => String(row[columnIndex]))
+        .join(':');
+      return key;
+    });
+    const groupedValues = Object.values(grouped);
+    const data: DataArray[] = [];
+
+    groupedValues.forEach((keyData) => {
+      const groupedRow = keyData[0];
+      const keyRow: DataArray = groups.map<DataValue>(
+        (columnName) => groupedRow[getColumnIndex(columnName)],
+      );
+      const keyTable: DataTable = {
+        columns: dataSrc.columns,
+        columnsIndexes,
+        data: keyData,
+      };
+      keyRow.push(keyTable);
+      data.push(keyRow);
+    });
+
+    const columns = [...groups, groupColumName];
+
+    return {
+      columns,
       columnsIndexes: getColumnsIndexes(columns),
       data,
     };
   };
 
 function addCells(newRow: DataArray, table: DataTable, tableRow: DataArray) {
-  table.structure.columns.forEach((columName, columnIndex) => {
+  table.columns.forEach((columName, columnIndex) => {
     newRow.push(tableRow[columnIndex]);
   });
 }
@@ -165,14 +248,23 @@ function getRowsByKeys(table: DataTable, columnName: string) {
   return rowsByKeys;
 }
 
-function getJoinColumns(left: DataTable, right: DataTable) {
+function getPrefixedName(name: string, prefix: string | undefined) {
+  return !prefix ? name : `${prefix}.${name}`;
+}
+
+function getJoinColumns(
+  left: DataTable,
+  right: DataTable,
+  leftPrefix: string | undefined,
+  rightPrefix: string | undefined,
+) {
   const columns: DataColumns = [];
 
-  left.structure.columns.forEach((item) => {
-    columns.push(`${left.structure.name}.${item}`);
+  left.columns.forEach((item) => {
+    columns.push(getPrefixedName(item, leftPrefix));
   });
-  right.structure.columns.forEach((item) => {
-    columns.push(`${right.structure.name}.${item}`);
+  right.columns.forEach((item) => {
+    columns.push(getPrefixedName(item, rightPrefix));
   });
 
   return columns;
